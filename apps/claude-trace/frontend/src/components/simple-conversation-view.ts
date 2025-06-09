@@ -145,6 +145,19 @@ export class SimpleConversationView extends LitElement {
 	}
 
 	private formatStringContent(content: string): TemplateResult {
+		if (!content) return html``;
+
+		// Normalize line endings and handle special characters
+		content = content
+			.replace(/\r\n/g, '\n')
+			.replace(/\r/g, '\n')
+			.replace(/\u2028/g, '\n')
+			.replace(/\u2029/g, '\n\n')
+			.replace(/\u00A0/g, ' ') // Non-breaking space
+			.replace(/\u202F/g, ' ') // Narrow non-breaking space
+			.replace(/\uFEFF/g, '') // Zero-width no-break space (BOM)
+			.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); // Remove control characters
+
 		// Check for system reminder blocks (handling both raw and HTML-escaped delimiters)
 		const systemReminderRegexEscaped = /&lt;system-reminder&gt;([\s\S]*?)&lt;\/system-reminder&gt;/g;
 		const systemReminderRegexRaw = /<system-reminder>([\s\S]*?)<\/system-reminder>/g;
@@ -162,10 +175,28 @@ export class SimpleConversationView extends LitElement {
 		}
 
 		// Remove system reminder blocks from main content
-		let mainContent = content.replace(systemReminderRegexEscaped, "").replace(systemReminderRegexRaw, "").trim();
+		let mainContent = content
+			.replace(systemReminderRegexEscaped, "")
+			.replace(systemReminderRegexRaw, "")
+			.trim();
+
+		// Ensure proper markdown rendering with UTF-8 handling
+		const renderMarkdown = (text: string) => {
+			try {
+				// Clean and normalize text to NFC form
+				const cleanedText = text
+					.replace(/\uFEFF/g, '') // Remove BOM
+					.replace(/\uFFFD/g, '') // Remove replacement characters
+					.normalize('NFC');
+				return markdownToHtml(cleanedText);
+			} catch (error) {
+				console.error('Error rendering markdown:', error);
+				return text;
+			}
+		};
 
 		return html`
-			${mainContent ? html`<div class="mt-4 markdown-content">${unsafeHTML(markdownToHtml(mainContent))}</div>` : ""}
+			${mainContent ? html`<div class="mt-4 markdown-content">${unsafeHTML(renderMarkdown(mainContent))}</div>` : ""}
 			${systemReminders.length > 0
 				? this.renderCollapsibleSection(
 						"System Reminder",
@@ -176,7 +207,7 @@ export class SimpleConversationView extends LitElement {
 										${systemReminders.length > 1
 											? html`<div class="text-vs-function font-bold mb-2">Reminder ${index + 1}:</div>`
 											: ""}
-										<div class="markdown-content">${unsafeHTML(markdownToHtml(reminder))}</div>
+										<div class="markdown-content">${unsafeHTML(renderMarkdown(reminder))}</div>
 									</div>
 								`,
 							)}

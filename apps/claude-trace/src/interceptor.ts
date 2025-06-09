@@ -42,8 +42,8 @@ export class ClaudeTrafficLogger {
 		// Initialize HTML generator
 		this.htmlGenerator = new HTMLGenerator();
 
-		// Clear log file
-		fs.writeFileSync(this.logFile, "");
+		// Clear log file with explicit UTF-8 encoding
+		fs.writeFileSync(this.logFile, "", { encoding: 'utf8' });
 	}
 
 	private isAnthropicAPI(url: string | URL): boolean {
@@ -111,8 +111,13 @@ export class ClaudeTrafficLogger {
 
 		if (body instanceof FormData) {
 			const formObject: Record<string, any> = {};
-			for (const [key, value] of body.entries()) {
-				formObject[key] = value;
+			// TypeScript doesn't have FormData.entries() in some environments
+			// @ts-ignore
+			if (body.entries) {
+				// @ts-ignore
+				for (const [key, value] of body.entries()) {
+					formObject[key] = value;
+				}
 			}
 			return formObject;
 		}
@@ -128,14 +133,40 @@ export class ClaudeTrafficLogger {
 				const body = await response.json();
 				return { body };
 			} else if (contentType.includes("text/event-stream")) {
-				const body_raw = await response.text();
+				const buffer = await response.arrayBuffer();
+				const decoder = new TextDecoder('utf-8');
+				const body_raw = decoder.decode(buffer);
 				return { body_raw };
 			} else if (contentType.includes("text/")) {
-				const body_raw = await response.text();
+				const buffer = await response.arrayBuffer();
+				const decoder = new TextDecoder('utf-8');
+				const body_raw = decoder.decode(buffer);
 				return { body_raw };
 			} else {
-				// For other types, try to read as text
-				const body_raw = await response.text();
+				// For other types, try to read as text with UTF-8 encoding
+				const buffer = await response.arrayBuffer();
+				const decoder = new TextDecoder('utf-8');
+				const body_raw = decoder.decode(buffer);
+				return { body_raw };
+			}
+		} catch (error) {
+			// Silent error handling during runtime
+			return {};
+		}
+	}
+
+	private async parseResponseBodyFromString(
+		body: string,
+		contentType?: string,
+	): Promise<{ body?: any; body_raw?: string }> {
+		try {
+			if (contentType && contentType.includes("application/json")) {
+				return { body: JSON.parse(body) };
+			} else {
+				// For all other types, return the raw body with UTF-8 encoding
+				const buffer = Buffer.from(body, 'utf-8');
+				const decoder = new TextDecoder('utf-8');
+				const body_raw = decoder.decode(buffer);
 				return { body_raw };
 			}
 		} catch (error) {
@@ -180,7 +211,7 @@ export class ClaudeTrafficLogger {
 				timestamp: requestTimestamp / 1000, // Convert to seconds (like Python version)
 				method: init.method || "GET",
 				url: url,
-				headers: logger.redactSensitiveHeaders(Object.fromEntries(new Headers(init.headers || {}).entries())),
+				headers: logger.redactSensitiveHeaders(Object.fromEntries(Array.from(new Headers(init.headers || {}) as any))),
 				body: await logger.parseRequestBody(init.body),
 			};
 
@@ -202,7 +233,7 @@ export class ClaudeTrafficLogger {
 				const responseData = {
 					timestamp: responseTimestamp / 1000,
 					status_code: response.status,
-					headers: logger.redactSensitiveHeaders(Object.fromEntries(response.headers.entries())),
+					headers: logger.redactSensitiveHeaders(Object.fromEntries(Array.from(response.headers as any))),
 					...responseBodyData,
 				};
 
@@ -295,19 +326,25 @@ export class ClaudeTrafficLogger {
 
 		const requestId = this.generateRequestId();
 		const requestTimestamp = Date.now();
-		let requestBody = "";
+		let requestBodyChunks: Buffer[] = [];
 
 		// Create the request
 		const req = originalRequest.call(this, options, (res: any) => {
 			const responseTimestamp = Date.now();
-			let responseBody = "";
+			let responseBodyChunks: Buffer[] = [];
 
-			// Capture response data
+			// Capture response data as buffers to handle UTF-8 properly
 			res.on("data", (chunk: any) => {
-				responseBody += chunk;
+				responseBodyChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
 			});
 
 			res.on("end", async () => {
+				// Concatenate all chunks and decode as UTF-8
+				const requestBodyBuffer = Buffer.concat(requestBodyChunks);
+				const responseBodyBuffer = Buffer.concat(responseBodyChunks);
+				
+				const requestBody = requestBodyBuffer.length > 0 ? requestBodyBuffer.toString('utf8') : "";
+				const responseBody = responseBodyBuffer.length > 0 ? responseBodyBuffer.toString('utf8') : "";
 				// Process the captured request/response
 				const requestData = {
 					timestamp: requestTimestamp / 1000,
@@ -344,11 +381,11 @@ export class ClaudeTrafficLogger {
 			}
 		});
 
-		// Capture request body
+		// Capture request body as buffers to handle UTF-8 properly
 		const originalWrite = req.write;
 		req.write = function (chunk: any) {
 			if (chunk) {
-				requestBody += chunk;
+				requestBodyChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
 			}
 			return originalWrite.call(this, chunk);
 		};
@@ -369,44 +406,48 @@ export class ClaudeTrafficLogger {
 		return `${protocol}//${hostname}${port}${path}`;
 	}
 
-	private async parseResponseBodyFromString(
-		body: string,
-		contentType?: string,
-	): Promise<{ body?: any; body_raw?: string }> {
-		try {
-			if (contentType && contentType.includes("application/json")) {
-				return { body: JSON.parse(body) };
-			} else if (contentType && contentType.includes("text/event-stream")) {
-				return { body_raw: body };
-			} else {
-				return { body_raw: body };
-			}
-		} catch (error) {
-			return { body_raw: body };
-		}
+	private async writePairToLog(pair: RawPair): Promise<void> {
+		// Ensure proper UTF-8 encoding when writing to log
+		const normalizedPair = this.normalizeObjectForUTF8(pair);
+		const line = JSON.stringify(normalizedPair) + "\n";
+		await fs.promises.appendFile(this.logFile, line, { encoding: 'utf8' });
 	}
 
-	private async writePairToLog(pair: RawPair): Promise<void> {
-		try {
-			const jsonLine = JSON.stringify(pair) + "\n";
-			fs.appendFileSync(this.logFile, jsonLine);
-		} catch (error) {
-			// Silent error handling during runtime
+	/**
+	 * Recursively normalize strings in an object to ensure proper UTF-8 encoding
+	 */
+	private normalizeObjectForUTF8(obj: any): any {
+		if (typeof obj === 'string') {
+			return this.cleanAndNormalizeText(obj);
+		} else if (Array.isArray(obj)) {
+			return obj.map(item => this.normalizeObjectForUTF8(item));
+		} else if (obj !== null && typeof obj === 'object') {
+			const normalized: any = {};
+			for (const [key, value] of Object.entries(obj)) {
+				normalized[key] = this.normalizeObjectForUTF8(value);
+			}
+			return normalized;
 		}
+		return obj;
+	}
+
+	/**
+	 * Clean and normalize text for proper UTF-8 handling
+	 */
+	private cleanAndNormalizeText(text: string): string {
+		if (!text) return '';
+		
+		// First, handle potential encoding artifacts and normalize
+		return text
+			.replace(/\uFEFF/g, '') // Remove BOM
+			.replace(/\uFFFD/g, '') // Remove replacement characters (encoding errors)
+			.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // Remove control characters
+			.normalize('NFC'); // Normalize to canonical form
 	}
 
 	private async generateHTML(): Promise<void> {
-		try {
-			const includeAllRequests = process.env.CLAUDE_TRACE_INCLUDE_ALL_REQUESTS === "true";
-			await this.htmlGenerator.generateHTML(this.pairs, this.htmlFile, {
-				title: `${this.pairs.length} API Calls`,
-				timestamp: new Date().toISOString().replace("T", " ").slice(0, -5),
-				includeAllRequests,
-			});
-			// Silent HTML generation
-		} catch (error) {
-			// Silent error handling during runtime
-		}
+		const html = await this.htmlGenerator.generate(this.pairs);
+		await fs.promises.writeFile(this.htmlFile, html, { encoding: 'utf8' });
 	}
 
 	public cleanup(): void {
@@ -421,8 +462,9 @@ export class ClaudeTrafficLogger {
 			};
 
 			try {
-				const jsonLine = JSON.stringify(orphanedPair) + "\n";
-				fs.appendFileSync(this.logFile, jsonLine);
+				const normalizedOrphanedPair = this.normalizeObjectForUTF8(orphanedPair);
+				const jsonLine = JSON.stringify(normalizedOrphanedPair) + "\n";
+				fs.appendFileSync(this.logFile, jsonLine, { encoding: 'utf8' });
 			} catch (error) {
 				console.log(`Error writing orphaned request: ${error}`);
 			}

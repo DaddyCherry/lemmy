@@ -95,7 +95,13 @@ export class SharedConversationProcessor {
 	 * Parse streaming response from raw SSE data
 	 */
 	private parseStreamingResponse(bodyRaw: string): Message {
-		const lines = bodyRaw.split("\n");
+		// Ensure proper UTF-8 handling for the input string
+		// First clean any potential encoding artifacts
+		const cleanedBodyRaw = bodyRaw
+			.replace(/\uFEFF/g, '') // Remove BOM
+			.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); // Remove control characters
+		const normalizedBodyRaw = cleanedBodyRaw.normalize('NFC');
+		const lines = normalizedBodyRaw.split("\n");
 		let content: ContentBlock[] = [];
 		let usage: any = null;
 		let model = "";
@@ -109,7 +115,9 @@ export class SharedConversationProcessor {
 			if (data === "[DONE]") break;
 
 			try {
-				const event = JSON.parse(data) as RawMessageStreamEvent;
+				// Ensure the data string is properly normalized before JSON parsing
+				const normalizedData = data.normalize('NFC');
+				const event = JSON.parse(normalizedData) as RawMessageStreamEvent;
 
 				if (event.type === "message_start") {
 					model = event.message.model;
@@ -122,13 +130,16 @@ export class SharedConversationProcessor {
 						content[index] = { type: "text", text: "" } as TextBlock;
 					}
 					if (content[index].type === "text") {
-						(content[index] as TextBlock).text += event.delta.text;
+						// Ensure UTF-8 text handling for delta text
+						const deltaText = event.delta.text ? event.delta.text.normalize('NFC') : '';
+						(content[index] as TextBlock).text += deltaText;
 					}
 				} else if (event.type === "message_delta") {
 					usage = event.usage;
 				}
 			} catch (e) {
-				// Skip invalid JSON
+				// Skip invalid JSON - log for debugging if needed
+				console.warn('Failed to parse streaming data:', data.slice(0, 100));
 			}
 		}
 

@@ -2,14 +2,143 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Language" content="en">
+    <meta http-equiv="Content-Script-Type" content="text/javascript">
+    <meta http-equiv="Content-Style-Type" content="text/css">
     <title>claude-traffic-__CLAUDE_LOGGER_TITLE_REPLACEMENT_UNIQUE_9487__</title>
+    <style>
+        /* Ensure proper font rendering with Japanese support */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans CJK JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        /* Explicit font settings for Japanese text */
+        * {
+            font-family: inherit;
+        }
+        
+        /* Ensure proper UTF-8 character rendering */
+        pre, code {
+            font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", "Noto Sans Mono CJK JP", monospace;
+        }
+    </style>
 </head>
 <body>
     <div id="app"></div>
     
     <script>
-      window.claudeData = JSON.parse(atob('__CLAUDE_LOGGER_DATA_REPLACEMENT_UNIQUE_9487__'));
+      function base64ToUtf8(str) {
+        try {
+          // Modern approach: Use TextDecoder for proper UTF-8 handling
+          if (typeof TextDecoder !== 'undefined' && typeof atob !== 'undefined') {
+            // Convert base64 to binary string first
+            const binaryString = atob(str);
+            
+            // Convert binary string to byte array
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            // Use TextDecoder for proper UTF-8 decoding
+            const decoder = new TextDecoder('utf-8', { fatal: false });
+            const decoded = decoder.decode(bytes);
+            
+            // Clean and normalize the result
+            return decoded
+              .replace(/\uFEFF/g, '') // Remove BOM
+              .replace(/\uFFFD/g, '') // Remove replacement characters
+              .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // Remove control characters
+              .normalize('NFC'); // Normalize to canonical form
+          } 
+          // Fallback for older browsers
+          else if (typeof atob !== 'undefined') {
+            // Convert base64 to binary string
+            const binaryString = atob(str);
+            
+            // Try UTF-8 decoding with escape sequences
+            let decoded = '';
+            for (let i = 0; i < binaryString.length; i++) {
+              decoded += String.fromCharCode(binaryString.charCodeAt(i));
+            }
+            
+            // Attempt to fix UTF-8 encoding issues
+            try {
+              decoded = decodeURIComponent(escape(decoded));
+            } catch {
+              // If that fails, use the original string
+            }
+            
+            return decoded
+              .replace(/\uFEFF/g, '') // Remove BOM
+              .replace(/\uFFFD/g, '') // Remove replacement characters
+              .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // Remove control characters
+              .normalize('NFC'); // Normalize to canonical form
+          } 
+          // Manual base64 decode fallback
+          else {
+            const base64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+            let bits = 0;
+            let value = 0;
+            let output = [];
+            
+            for (let i = 0; i < str.length; i++) {
+              const c = str[i];
+              if (c === '=') break;
+              
+              const index = base64.indexOf(c);
+              if (index === -1) continue;
+              
+              value = (value << 6) | index;
+              bits += 6;
+              
+              if (bits >= 8) {
+                bits -= 8;
+                output.push((value >> bits) & 0xFF);
+              }
+            }
+            
+            // Use TextDecoder if available, otherwise manual UTF-8 decode
+            if (typeof TextDecoder !== 'undefined') {
+              const decoder = new TextDecoder('utf-8', { fatal: false });
+              const decoded = decoder.decode(new Uint8Array(output));
+              
+              return decoded
+                .replace(/\uFEFF/g, '') // Remove BOM
+                .replace(/\uFFFD/g, '') // Remove replacement characters
+                .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // Remove control characters
+                .normalize('NFC'); // Normalize to canonical form
+            } else {
+              // Manual UTF-8 decode for very old browsers
+              let decoded = '';
+              for (let i = 0; i < output.length; i++) {
+                decoded += String.fromCharCode(output[i]);
+              }
+              
+              try {
+                decoded = decodeURIComponent(escape(decoded));
+              } catch {
+                // Keep original if decoding fails
+              }
+              
+              return decoded
+                .replace(/\uFEFF/g, '') // Remove BOM
+                .replace(/\uFFFD/g, '') // Remove replacement characters
+                .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // Remove control characters
+                .normalize('NFC'); // Normalize to canonical form
+            }
+          }
+        } catch (error) {
+          console.error('Base64 decoding error:', error);
+          return '[]'; // Return empty array as fallback
+        }
+      }
+      window.claudeData = JSON.parse(base64ToUtf8('__CLAUDE_LOGGER_DATA_REPLACEMENT_UNIQUE_9487__'));
     </script>
     
     <script>

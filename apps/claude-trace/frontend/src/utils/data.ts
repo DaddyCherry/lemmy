@@ -7,9 +7,9 @@ import type {
 	ThinkingBlock,
 	ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages";
-import { ProcessedPair } from "../../../src/shared-conversation-processor";
+import type { ProcessedPair } from "../../../src/shared-conversation-processor";
 
-export { ProcessedPair };
+export type { ProcessedPair };
 
 export interface RawPairData {
 	request_body: MessageCreateParams;
